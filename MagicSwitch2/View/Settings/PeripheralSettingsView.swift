@@ -22,10 +22,14 @@ struct PeripheralSettingsView: View {
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(Array(pairedDevices)) { device in
+                        let isConnected = device.isConnected
+                        let isRegistered = deviceStore.isRegistered(device)
+
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(device.displayName)
-                                    .fontWeight(deviceStore.isRegistered(device) ? .semibold : .regular)
+                                    .fontWeight(isRegistered ? .semibold : .regular)
+                                    .foregroundStyle(isConnected ? .white : .primary)
                                 Text(device.id)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -33,13 +37,44 @@ struct PeripheralSettingsView: View {
 
                             Spacer()
 
-                            if device.isConnected {
+                            if isConnected {
                                 Text("Connected")
                                     .font(.caption)
                                     .foregroundColor(.green)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(.green.opacity(0.14))
+                                    .clipShape(Capsule())
                             }
 
-                            if deviceStore.isRegistered(device) {
+                            if isRegistered {
+                                Button {
+                                    _ = deviceStore.connectPeripheral(device)
+                                    refreshTick += 1
+                                } label: {
+                                    Label("Connect", systemImage: "link.circle")
+                                }
+                                .buttonStyle(.glass)
+                                .disabled(isConnected)
+
+                                Button {
+                                    _ = deviceStore.reconnectPeripheral(device)
+                                    refreshTick += 1
+                                } label: {
+                                    Image(systemName: "arrow.clockwise.circle")
+                                }
+                                .help("Reconnect")
+                                .buttonStyle(.glass)
+
+                                Button {
+                                    _ = deviceStore.disconnectPeripheral(device)
+                                    refreshTick += 1
+                                } label: {
+                                    Image(systemName: "xmark.circle")
+                                }
+                                .help("Disconnect")
+                                .buttonStyle(.glass)
+
                                 Button("Remove") {
                                     deviceStore.unregister(device)
                                     refreshTick += 1
@@ -50,7 +85,7 @@ struct PeripheralSettingsView: View {
                                     deviceStore.register(device)
                                     refreshTick += 1
                                 }
-                                .buttonStyle(.glassProminent)
+                                .buttonStyle(.glass)
                             }
                         }
                         .padding(.vertical, 2)

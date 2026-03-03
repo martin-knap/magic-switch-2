@@ -21,8 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
-        setupNetworking()
-        setupCommandHandler()
         requestNotificationPermission()
     }
 
@@ -41,32 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
         menuBarView = MenuBarView(
             deviceStore: deviceStore,
-            serviceBrowser: serviceBrowser,
             bluetoothManager: bluetoothManager
         )
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        let eventType = NSApp.currentEvent?.type
-        let isRightClick = eventType == .rightMouseUp
-            || eventType == .rightMouseDown
-            || NSApp.currentEvent?.modifierFlags.contains(.control) == true
-
-        if isRightClick {
-            showStatusMenu()
-        } else {
-            quickSwitchToPreferredPeer()
-        }
-    }
-
-    private func quickSwitchToPreferredPeer() {
-        guard let peer = serviceBrowser.peers.sorted(by: { $0.displayName < $1.displayName }).first else {
-            // Fall back to the menu so left-click always gives visible feedback.
-            showStatusMenu()
-            return
-        }
-
-        performSwitch(to: peer)
+        showStatusMenu()
     }
 
     private func showStatusMenu() {
@@ -108,6 +86,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     }
 
     // MARK: - Switch Action
+
+    @objc func connectKeyboard(_ sender: NSMenuItem) {
+        let connected = deviceStore.connectFirst(matching: ["keyboard"])
+        if connected {
+            showNotification(title: "MagicSwitch2", body: "Keyboard connected")
+        } else {
+            showNotification(title: "MagicSwitch2", body: "Keyboard not found or failed to connect")
+        }
+    }
+
+    @objc func connectTrackpad(_ sender: NSMenuItem) {
+        let connected = deviceStore.connectFirst(matching: ["trackpad"])
+        if connected {
+            showNotification(title: "MagicSwitch2", body: "Trackpad connected")
+        } else {
+            showNotification(title: "MagicSwitch2", body: "Trackpad not found or failed to connect")
+        }
+    }
+
+    @objc func noopMenuAction(_ sender: NSMenuItem) {
+        // Keeps informational menu rows enabled for proper text styling.
+    }
+
+    @objc func connectPeripheralFromMenu(_ sender: Any?) {
+        guard let peripheral = peripheralFromSender(sender) else { return }
+        let connected = deviceStore.connectPeripheral(peripheral)
+        showNotification(
+            title: "MagicSwitch2",
+            body: connected ? "\(peripheral.displayName) connected" : "Failed to connect \(peripheral.displayName)"
+        )
+    }
+
+    @objc func reconnectPeripheralFromMenu(_ sender: Any?) {
+        guard let peripheral = peripheralFromSender(sender) else { return }
+        let connected = deviceStore.reconnectPeripheral(peripheral)
+        showNotification(
+            title: "MagicSwitch2",
+            body: connected ? "\(peripheral.displayName) reconnected" : "Failed to reconnect \(peripheral.displayName)"
+        )
+    }
+
+    @objc func disconnectPeripheralFromMenu(_ sender: Any?) {
+        guard let peripheral = peripheralFromSender(sender) else { return }
+        let disconnected = deviceStore.disconnectPeripheral(peripheral)
+        showNotification(
+            title: "MagicSwitch2",
+            body: disconnected ? "\(peripheral.displayName) disconnected" : "Failed to disconnect \(peripheral.displayName)"
+        )
+    }
+
+    @objc func removePeripheralFromMenu(_ sender: Any?) {
+        guard let peripheral = peripheralFromSender(sender) else { return }
+        deviceStore.unregister(peripheral)
+        showNotification(title: "MagicSwitch2", body: "\(peripheral.displayName) removed")
+    }
+
+    private func peripheralFromSender(_ sender: Any?) -> BluetoothPeripheral? {
+        if let item = sender as? NSMenuItem,
+           let peripheral = item.representedObject as? BluetoothPeripheral {
+            return peripheral
+        }
+
+        if let button = sender as? NSButton,
+           let peripheralID = button.identifier?.rawValue {
+            if let registered = deviceStore.registeredPeripherals.first(where: { $0.id == peripheralID }) {
+                return registered
+            }
+            return deviceStore.pairedDevices().first(where: { $0.id == peripheralID })
+        }
+
+        return nil
+    }
 
     @objc func switchToPeer(_ sender: NSMenuItem) {
         guard let peer = sender.representedObject as? NetworkPeer else { return }

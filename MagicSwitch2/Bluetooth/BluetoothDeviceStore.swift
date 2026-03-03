@@ -52,20 +52,54 @@ final class BluetoothDeviceStore: ObservableObject {
         logger.info("Connecting all registered peripherals...")
         var allSuccess = true
         for peripheral in registeredPeripherals {
-            guard let device = IOBluetoothDevice(addressString: peripheral.id) else {
-                logger.error("Failed to create device for \(peripheral.id)")
-                allSuccess = false
-                continue
-            }
-            let result = device.openConnection()
-            if result != kIOReturnSuccess {
-                logger.error("Failed to connect \(peripheral.displayName): \(result)")
-                allSuccess = false
-            } else {
-                logger.info("Connected \(peripheral.displayName)")
-            }
+            allSuccess = connectPeripheral(peripheral) && allSuccess
         }
         return allSuccess
+    }
+
+    /// Connect first matching peripheral by name keywords (case-insensitive).
+    func connectFirst(matching keywords: [String]) -> Bool {
+        let normalizedKeywords = keywords.map { $0.lowercased() }
+
+        let candidate = registeredPeripherals.first {
+            let name = $0.displayName.lowercased()
+            return normalizedKeywords.contains { name.contains($0) }
+        } ?? pairedDevices().first {
+            let name = $0.displayName.lowercased()
+            return normalizedKeywords.contains { name.contains($0) }
+        }
+
+        guard let candidate else {
+            logger.error("No matching peripheral found for keywords: \(keywords.joined(separator: ","))")
+            return false
+        }
+
+        return connectPeripheral(candidate)
+    }
+
+    func connectPeripheral(_ peripheral: BluetoothPeripheral) -> Bool {
+        performConnect(peripheral)
+    }
+
+    func disconnectPeripheral(_ peripheral: BluetoothPeripheral) -> Bool {
+        guard let device = IOBluetoothDevice(addressString: peripheral.id) else {
+            logger.error("Failed to create device for \(peripheral.id)")
+            return false
+        }
+
+        let result = device.closeConnection()
+        if result != kIOReturnSuccess {
+            logger.error("Failed to disconnect \(peripheral.displayName): \(result)")
+            return false
+        }
+
+        logger.info("Disconnected \(peripheral.displayName)")
+        return true
+    }
+
+    func reconnectPeripheral(_ peripheral: BluetoothPeripheral) -> Bool {
+        let _ = disconnectPeripheral(peripheral)
+        return connectPeripheral(peripheral)
     }
 
     /// Unregister (remove pairing) all registered peripherals using private API
@@ -108,5 +142,21 @@ final class BluetoothDeviceStore: ObservableObject {
             return
         }
         registeredPeripherals = peripherals
+    }
+
+    private func performConnect(_ peripheral: BluetoothPeripheral) -> Bool {
+        guard let device = IOBluetoothDevice(addressString: peripheral.id) else {
+            logger.error("Failed to create device for \(peripheral.id)")
+            return false
+        }
+
+        let result = device.openConnection()
+        if result != kIOReturnSuccess {
+            logger.error("Failed to connect \(peripheral.displayName): \(result)")
+            return false
+        }
+
+        logger.info("Connected \(peripheral.displayName)")
+        return true
     }
 }
