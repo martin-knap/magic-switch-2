@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>MagicSwitch2 needs Bluetooth access to switch your Magic Keyboard and Mouse/Trackpad between Macs.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MagicSwitch2 uses the local network to discover and communicate with other Macs running this app.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_magicswitch2._tcp</string>
+	</array>
+</dict>
+</plist>
