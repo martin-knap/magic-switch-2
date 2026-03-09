@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
+        setupNetworking()
+        setupCommandHandler()
         requestNotificationPermission()
     }
 
@@ -88,21 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     // MARK: - Switch Action
 
     @objc func connectKeyboard(_ sender: NSMenuItem) {
-        let connected = deviceStore.connectFirst(matching: ["keyboard"])
-        if connected {
-            showNotification(title: "MagicSwitch2", body: "Keyboard connected")
-        } else {
-            showNotification(title: "MagicSwitch2", body: "Keyboard not found or failed to connect")
-        }
+        let result = deviceStore.connectFirst(matching: ["keyboard"])
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     @objc func connectTrackpad(_ sender: NSMenuItem) {
-        let connected = deviceStore.connectFirst(matching: ["trackpad"])
-        if connected {
-            showNotification(title: "MagicSwitch2", body: "Trackpad connected")
-        } else {
-            showNotification(title: "MagicSwitch2", body: "Trackpad not found or failed to connect")
-        }
+        let result = deviceStore.connectFirst(matching: ["trackpad"])
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     @objc func noopMenuAction(_ sender: NSMenuItem) {
@@ -111,35 +105,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     @objc func connectPeripheralFromMenu(_ sender: Any?) {
         guard let peripheral = peripheralFromSender(sender) else { return }
-        let connected = deviceStore.connectPeripheral(peripheral)
-        showNotification(
-            title: "MagicSwitch2",
-            body: connected ? "\(peripheral.displayName) connected" : "Failed to connect \(peripheral.displayName)"
-        )
+        let result = deviceStore.connectPeripheral(peripheral)
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     @objc func reconnectPeripheralFromMenu(_ sender: Any?) {
         guard let peripheral = peripheralFromSender(sender) else { return }
-        let connected = deviceStore.reconnectPeripheral(peripheral)
-        showNotification(
-            title: "MagicSwitch2",
-            body: connected ? "\(peripheral.displayName) reconnected" : "Failed to reconnect \(peripheral.displayName)"
-        )
+        let result = deviceStore.reconnectPeripheral(peripheral)
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     @objc func disconnectPeripheralFromMenu(_ sender: Any?) {
         guard let peripheral = peripheralFromSender(sender) else { return }
-        let disconnected = deviceStore.disconnectPeripheral(peripheral)
-        showNotification(
-            title: "MagicSwitch2",
-            body: disconnected ? "\(peripheral.displayName) disconnected" : "Failed to disconnect \(peripheral.displayName)"
-        )
+        let result = deviceStore.disconnectPeripheral(peripheral)
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     @objc func removePeripheralFromMenu(_ sender: Any?) {
         guard let peripheral = peripheralFromSender(sender) else { return }
-        deviceStore.unregister(peripheral)
-        showNotification(title: "MagicSwitch2", body: "\(peripheral.displayName) removed")
+        let result = deviceStore.forgetPeripheral(peripheral)
+        showNotification(title: "MagicSwitch2", body: result.message)
     }
 
     private func peripheralFromSender(_ sender: Any?) -> BluetoothPeripheral? {

@@ -1,96 +1,99 @@
 import SwiftUI
 
+private struct PeripheralConnectionSwitch: View {
+    let isConnected: Bool
+    let onToggle: (Bool) -> Void
+
+    @State private var isOn: Bool
+
+    init(isConnected: Bool, onToggle: @escaping (Bool) -> Void) {
+        self.isConnected = isConnected
+        self.onToggle = onToggle
+        _isOn = State(initialValue: isConnected)
+    }
+
+    var body: some View {
+        Toggle("", isOn: Binding(
+            get: { isOn },
+            set: { newValue in
+                isOn = newValue
+                onToggle(newValue)
+            }
+        ))
+        .toggleStyle(.switch)
+        .labelsHidden()
+        .tint(.blue)
+        .onChange(of: isConnected) { _, newValue in
+            isOn = newValue
+        }
+    }
+}
+
 struct PeripheralSettingsView: View {
     @ObservedObject var deviceStore: BluetoothDeviceStore
     @State private var refreshTick = 0
+    @State private var lastOperationMessage: String?
+    @State private var lastOperationSucceeded = true
     private let refreshTimer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        let pairedDevices = {
+        let knownDevices = {
             _ = refreshTick
-            return deviceStore.pairedDevices()
+            return deviceStore.knownDevices()
         }()
 
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Register Bluetooth peripherals to switch between Macs.")
-                .font(.callout)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            if let lastOperationMessage {
+                Text(lastOperationMessage)
+                    .font(.caption)
+                    .foregroundColor(lastOperationSucceeded ? .green : .orange)
+                    .padding(.horizontal)
+            }
 
-            List {
-                if pairedDevices.isEmpty {
-                    Text("No paired Bluetooth devices found.")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(Array(pairedDevices)) { device in
-                        let isConnected = device.isConnected
-                        let isRegistered = deviceStore.isRegistered(device)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if knownDevices.isEmpty {
+                        Text("No known Bluetooth devices found.")
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal)
+                    } else {
+                        ForEach(Array(knownDevices)) { device in
+                            HStack(spacing: 12) {
+                                Image(systemName: device.systemImageName)
+                                    .font(.title2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 28)
 
-                        HStack {
-                            VStack(alignment: .leading) {
                                 Text(device.displayName)
-                                    .fontWeight(isRegistered ? .semibold : .regular)
-                                    .foregroundStyle(isConnected ? .white : .primary)
-                                Text(device.id)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+
+                                Spacer(minLength: 12)
+
+                                PeripheralConnectionSwitch(isConnected: device.isConnected) { shouldConnect in
+                                    let result: BluetoothOperationResult
+
+                                    if shouldConnect {
+                                        if !deviceStore.isRegistered(device) {
+                                            deviceStore.register(device)
+                                        }
+                                        result = deviceStore.connectPeripheral(device)
+                                    } else {
+                                        result = deviceStore.disconnectPeripheral(device)
+                                    }
+
+                                    lastOperationMessage = result.message
+                                    lastOperationSucceeded = result.success
+                                    refreshTick += 1
+                                }
                             }
-
-                            Spacer()
-
-                            if isConnected {
-                                Text("Connected")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(.green.opacity(0.14))
-                                    .clipShape(Capsule())
-                            }
-
-                            if isRegistered {
-                                Button {
-                                    _ = deviceStore.connectPeripheral(device)
-                                    refreshTick += 1
-                                } label: {
-                                    Label("Connect", systemImage: "link.circle")
-                                }
-                                .buttonStyle(.glass)
-                                .disabled(isConnected)
-
-                                Button {
-                                    _ = deviceStore.reconnectPeripheral(device)
-                                    refreshTick += 1
-                                } label: {
-                                    Image(systemName: "arrow.clockwise.circle")
-                                }
-                                .help("Reconnect")
-                                .buttonStyle(.glass)
-
-                                Button {
-                                    _ = deviceStore.disconnectPeripheral(device)
-                                    refreshTick += 1
-                                } label: {
-                                    Image(systemName: "xmark.circle")
-                                }
-                                .help("Disconnect")
-                                .buttonStyle(.glass)
-
-                                Button("Remove") {
-                                    deviceStore.unregister(device)
-                                    refreshTick += 1
-                                }
-                                .buttonStyle(.glass)
-                            } else {
-                                Button("Register") {
-                                    deviceStore.register(device)
-                                    refreshTick += 1
-                                }
-                                .buttonStyle(.glass)
-                            }
+                            .padding(16)
+                            .background(.white.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
-                        .padding(.vertical, 2)
                     }
                 }
+                .padding()
             }
 
             GlassEffectContainer {
@@ -99,14 +102,10 @@ struct PeripheralSettingsView: View {
                         refreshTick += 1
                     }
                     .buttonStyle(.glass)
-
-                    Spacer()
-
-                    Text("\(deviceStore.registeredPeripherals.count) registered")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    .controlSize(.large)
                 }
             }
+            .padding(.horizontal)
         }
         .padding()
         .onReceive(refreshTimer) { _ in
