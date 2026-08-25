@@ -137,6 +137,7 @@ final class BluetoothDeviceStore: ObservableObject {
     private let logger = Logger(subsystem: "com.magicswitch2", category: "BluetoothDeviceStore")
     private let storageKey = "registeredPeripherals"
     private let recoveryDelay: TimeInterval = 0.75
+    private let pairingRemovalTimeout: TimeInterval = 5.0
     private let pairingTimeout: TimeInterval = 20.0
     private let inquiryTimeout: TimeInterval = 8.0
     private let pollingInterval: TimeInterval = 0.2
@@ -282,13 +283,9 @@ final class BluetoothDeviceStore: ObservableObject {
         return successResult("\(peripheral.displayName) disconnected")
     }
 
-    func reconnectPeripheral(_ peripheral: BluetoothPeripheral) -> BluetoothOperationResult {
-        _ = disconnectPeripheral(peripheral)
-        waitForBluetoothStatePropagation()
-        return connectPeripheral(peripheral)
-    }
-
-    func forgetPeripheral(_ peripheral: BluetoothPeripheral, unregisterFromApp: Bool = false) -> BluetoothOperationResult {
+    /// Release a peripheral from this Mac so another Mac can pair with it.
+    /// The peripheral remains registered in the app so it can be taken back later.
+    func releasePeripheral(_ peripheral: BluetoothPeripheral) -> BluetoothOperationResult {
         guard bluetoothIsPoweredOn else {
             return failureResult("Bluetooth is turned off on this Mac")
         }
@@ -298,21 +295,40 @@ final class BluetoothDeviceStore: ObservableObject {
             return failureResult("Failed to access \(peripheral.displayName)")
         }
 
-        let disconnectResult = device.closeConnection()
-        if disconnectResult == kIOReturnSuccess {
-            logger.info("Closed connection before forgetting \(peripheral.displayName)")
+        // Keep the address and name after macOS removes the pairing record.
+        register(peripheral)
+
+        guard isPaired(peripheral) else {
+            if device.isConnected() {
+                _ = device.closeConnection()
+            }
+            return successResult("\(peripheral.displayName) is already released from this Mac")
         }
 
         guard removePairing(for: peripheral, device: device) else {
-            return failureResult("Failed to forget \(peripheral.displayName) on this Mac")
+            return failureResult("Failed to release \(peripheral.displayName) from this Mac")
         }
+
+        logger.info("Released \(peripheral.displayName) from this Mac")
+        return successResult("\(peripheral.displayName) released from this Mac. It can now be connected on the other Mac.")
+    }
+
+    func reconnectPeripheral(_ peripheral: BluetoothPeripheral) -> BluetoothOperationResult {
+        _ = disconnectPeripheral(peripheral)
+        waitForBluetoothStatePropagation()
+        return connectPeripheral(peripheral)
+    }
+
+    func forgetPeripheral(_ peripheral: BluetoothPeripheral, unregisterFromApp: Bool = false) -> BluetoothOperationResult {
+        let releaseResult = releasePeripheral(peripheral)
+        guard releaseResult.success else { return releaseResult }
 
         if unregisterFromApp {
             unregister(peripheral)
             return successResult("\(peripheral.displayName) forgotten and unregistered")
         }
 
-        return successResult("\(peripheral.displayName) forgotten. Turn the device off and on, then click Connect to pair it again.")
+        return releaseResult
     }
 
     /// Unregister (remove pairing) all registered peripherals using private API
@@ -497,6 +513,10 @@ final class BluetoothDeviceStore: ObservableObject {
     }
 
     private func removePairing(for peripheral: BluetoothPeripheral, device: IOBluetoothDevice) -> Bool {
+        guard isPaired(peripheral) else {
+            return true
+        }
+
         let selector = Selector(("remove"))
         guard device.responds(to: selector) else {
             logger.error("Device does not respond to remove selector: \(peripheral.displayName)")
@@ -504,8 +524,38 @@ final class BluetoothDeviceStore: ObservableObject {
         }
 
         _ = device.perform(selector)
-        logger.info("Removed pairing for \(peripheral.displayName)")
+        logger.info("Requested pairing removal for \(peripheral.displayName)")
+
+        let pairingWasRemoved = waitUntil(timeout: pairingRemovalTimeout) { [self] in
+            isPaired(peripheral) == false
+        }
+
+        guard pairingWasRemoved else {
+            logger.error("Pairing removal did not complete for \(peripheral.displayName)")
+            return false
+        }
+
+        logger.info("Confirmed pairing removal for \(peripheral.displayName)")
         return true
+    }
+
+    private func isPaired(_ peripheral: BluetoothPeripheral) -> Bool {
+        let targetID = normalizedBluetoothAddress(peripheral.id)
+
+        guard let pairedDevices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
+            return bluetoothDevice(for: peripheral)?.isPaired() ?? false
+        }
+
+        return pairedDevices.contains { device in
+            guard let address = device.addressString else { return false }
+            return normalizedBluetoothAddress(address) == targetID
+        }
+    }
+
+    private func normalizedBluetoothAddress(_ address: String) -> String {
+        address
+            .lowercased()
+            .filter { $0.isHexDigit }
     }
 
     private func waitForBluetoothStatePropagation() {

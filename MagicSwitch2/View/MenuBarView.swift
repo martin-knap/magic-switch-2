@@ -123,7 +123,7 @@ final class MenuBarView {
                     }
                     _ = deviceStore.connectPeripheral(peripheral)
                 } else {
-                    _ = deviceStore.disconnectPeripheral(peripheral)
+                    _ = deviceStore.releasePeripheral(peripheral)
                 }
             }
         )

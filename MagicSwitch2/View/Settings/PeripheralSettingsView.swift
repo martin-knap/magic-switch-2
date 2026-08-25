@@ -79,7 +79,7 @@ struct PeripheralSettingsView: View {
                                         }
                                         result = deviceStore.connectPeripheral(device)
                                     } else {
-                                        result = deviceStore.disconnectPeripheral(device)
+                                        result = deviceStore.releasePeripheral(device)
                                     }
 
                                     lastOperationMessage = result.message
