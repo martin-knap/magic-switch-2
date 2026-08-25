@@ -67,6 +67,7 @@ final class MenuBarView {
     var onSwitchClicked: ((NetworkPeer) -> Void)?
     var onSettingsClicked: (() -> Void)?
     var onQuitClicked: (() -> Void)?
+    var onBluetoothOperationCompleted: ((BluetoothOperationResult) -> Void)?
 
     init(deviceStore: BluetoothDeviceStore, bluetoothManager: BluetoothManager) {
         self.deviceStore = deviceStore
@@ -121,9 +122,13 @@ final class MenuBarView {
                     if !deviceStore.isRegistered(peripheral) {
                         deviceStore.register(peripheral)
                     }
-                    _ = deviceStore.connectPeripheral(peripheral)
+                    deviceStore.connectPeripheralAsync(peripheral) { [weak self] result in
+                        self?.onBluetoothOperationCompleted?(result)
+                    }
                 } else {
-                    _ = deviceStore.releasePeripheral(peripheral)
+                    deviceStore.releasePeripheralAsync(peripheral) { [weak self] result in
+                        self?.onBluetoothOperationCompleted?(result)
+                    }
                 }
             }
         )

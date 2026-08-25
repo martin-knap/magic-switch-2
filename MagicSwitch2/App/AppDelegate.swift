@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
             deviceStore: deviceStore,
             bluetoothManager: bluetoothManager
         )
+        menuBarView.onBluetoothOperationCompleted = { [weak self] result in
+            self?.showBluetoothOperationResult(result)
+        }
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -280,5 +283,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         )
         UNUserNotificationCenter.current().add(request)
         logger.info("\(title): \(body)")
+    }
+
+    private func showBluetoothOperationResult(_ result: BluetoothOperationResult) {
+        if result.success {
+            showNotification(title: "MagicSwitch2", body: result.message)
+            return
+        }
+
+        logger.error("Bluetooth operation failed: \(result.message, privacy: .public)")
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "MagicSwitch2"
+        alert.informativeText = result.message
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }

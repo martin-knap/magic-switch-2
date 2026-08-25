@@ -3,7 +3,7 @@ import IOBluetooth
 import Combine
 import os
 
-struct BluetoothOperationResult {
+struct BluetoothOperationResult: Sendable {
     let success: Bool
     let message: String
 }
@@ -131,10 +131,11 @@ private final class BluetoothInquiryObserver: NSObject, IOBluetoothDeviceInquiry
     }
 }
 
-final class BluetoothDeviceStore: ObservableObject {
+final class BluetoothDeviceStore: ObservableObject, @unchecked Sendable {
     @Published var registeredPeripherals: [BluetoothPeripheral] = []
 
     private let logger = Logger(subsystem: "com.magicswitch2", category: "BluetoothDeviceStore")
+    private let operationQueue = DispatchQueue(label: "com.magicswitch2.bluetooth-operations", qos: .userInitiated)
     private let storageKey = "registeredPeripherals"
     private let recoveryDelay: TimeInterval = 0.75
     private let pairingRemovalTimeout: TimeInterval = 5.0
@@ -246,21 +247,37 @@ final class BluetoothDeviceStore: ObservableObject {
             return successResult("\(peripheral.displayName) is already connected")
         }
 
-        let device = preferredDeviceReference(for: peripheral, fallback: storedDevice)
-
-        if device.isPaired() == false {
-            let discoveredDevice = discoverDeviceForPairing(peripheral) ?? device
+        if storedDevice.isPaired() == false {
+            guard let discoveredDevice = discoverDeviceForPairing(peripheral) else {
+                return failureResult(
+                    "\(peripheral.displayName) is not discoverable. Turn it off and on, then try Connect again. You can also attach it to this Mac with a cable to pair it."
+                )
+            }
             return pairAndConnectPeripheral(peripheral, device: discoveredDevice)
         }
 
-        let directResult = device.openConnection()
-        if isSuccessfulConnectionResult(directResult, device: device) {
+        let directResult = storedDevice.openConnection()
+        if isSuccessfulConnectionResult(directResult, device: storedDevice) {
             logger.info("Connected \(peripheral.displayName) directly")
             return successResult("\(peripheral.displayName) connected")
         }
 
         logger.error("Direct connect failed for \(peripheral.displayName): \(directResult)")
-        return performRecoveryConnect(for: peripheral, device: device, initialResult: directResult)
+        return performRecoveryConnect(for: peripheral, device: storedDevice, initialResult: directResult)
+    }
+
+    @MainActor
+    func connectPeripheralAsync(
+        _ peripheral: BluetoothPeripheral,
+        completion: @escaping @MainActor (BluetoothOperationResult) -> Void
+    ) {
+        operationQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.connectPeripheral(peripheral)
+            Task { @MainActor in
+                completion(result)
+            }
+        }
     }
 
     func disconnectPeripheral(_ peripheral: BluetoothPeripheral) -> BluetoothOperationResult {
@@ -295,9 +312,6 @@ final class BluetoothDeviceStore: ObservableObject {
             return failureResult("Failed to access \(peripheral.displayName)")
         }
 
-        // Keep the address and name after macOS removes the pairing record.
-        register(peripheral)
-
         guard isPaired(peripheral) else {
             if device.isConnected() {
                 _ = device.closeConnection()
@@ -311,6 +325,23 @@ final class BluetoothDeviceStore: ObservableObject {
 
         logger.info("Released \(peripheral.displayName) from this Mac")
         return successResult("\(peripheral.displayName) released from this Mac. It can now be connected on the other Mac.")
+    }
+
+    @MainActor
+    func releasePeripheralAsync(
+        _ peripheral: BluetoothPeripheral,
+        completion: @escaping @MainActor (BluetoothOperationResult) -> Void
+    ) {
+        // Keep the address and name after macOS removes the pairing record.
+        register(peripheral)
+
+        operationQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.releasePeripheral(peripheral)
+            Task { @MainActor in
+                completion(result)
+            }
+        }
     }
 
     func reconnectPeripheral(_ peripheral: BluetoothPeripheral) -> BluetoothOperationResult {
@@ -409,17 +440,6 @@ final class BluetoothDeviceStore: ObservableObject {
         )
     }
 
-    private func preferredDeviceReference(
-        for peripheral: BluetoothPeripheral,
-        fallback: IOBluetoothDevice
-    ) -> IOBluetoothDevice {
-        if let discoveredDevice = discoverDeviceForPairing(peripheral) {
-            return discoveredDevice
-        }
-
-        return fallback
-    }
-
     private func pairAndConnectPeripheral(
         _ peripheral: BluetoothPeripheral,
         device: IOBluetoothDevice
@@ -456,9 +476,10 @@ final class BluetoothDeviceStore: ObservableObject {
 
         if observer.error != kIOReturnSuccess && device.isPaired() == false {
             logger.error("Pairing failed for \(peripheral.displayName): \(observer.error)")
-            if observer.error == kBluetoothHCIErrorHostTimeout {
+            if observer.error == kBluetoothHCIErrorHostTimeout
+                || observer.error == kBluetoothHCIErrorPageTimeout {
                 return failureResult(
-                    "Pairing with \(peripheral.displayName) timed out at the Bluetooth host. Turn the device off and on, wait for it to become discoverable, then click Connect again."
+                    "Pairing with \(peripheral.displayName) timed out. Turn it off and on, wait for it to become discoverable, then click Connect again. You can also attach it to this Mac with a cable to pair it."
                 )
             }
 
