@@ -248,12 +248,16 @@ final class BluetoothDeviceStore: ObservableObject, @unchecked Sendable {
         }
 
         if storedDevice.isPaired() == false {
-            guard let discoveredDevice = discoverDeviceForPairing(peripheral) else {
-                return failureResult(
-                    "\(peripheral.displayName) is not discoverable. Turn it off and on, then try Connect again. You can also attach it to this Mac with a cable to pair it."
-                )
+            let pairingDevice: IOBluetoothDevice
+            if let discoveredDevice = discoverDeviceForPairing(peripheral) {
+                pairingDevice = discoveredDevice
+            } else {
+                // Some Magic peripherals do not appear in a classic inquiry even
+                // though macOS can still reach them by their previously known address.
+                logger.info("Trying direct pairing for \(peripheral.displayName) after inquiry found no match")
+                pairingDevice = storedDevice
             }
-            return pairAndConnectPeripheral(peripheral, device: discoveredDevice)
+            return pairAndConnectPeripheral(peripheral, device: pairingDevice)
         }
 
         let directResult = storedDevice.openConnection()
